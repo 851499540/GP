@@ -1,0 +1,165 @@
+require(mnormt)
+require(ggplot2)
+
+#generating sampling from Gaussian Process(GPs)
+#with and without data
+# explore what happens when we manually change the struture of the mane and covariance functions and their parameters
+
+
+# mean function
+GPmean <- function(x,a=0,b=0,c=0){
+  a+b*x+c*x*x
+}
+
+#two choice of covariance function
+#power exponential 
+GPexpcov <- function(x1,x2,sigma2=1,phi=.1,nu=2,p=2){
+  sigma2*(exp((-abs(x1-x2)^p)/phi))
+}
+
+#Matern function
+GPMatern <-function(x1,x2,sigma2=1,phi=.1,nu=1.5){
+  cov <- sigma2*(2^(1-nu)/gamma(nu)*(sqrt(2*nu)*abs(x1-x2)/phi)^nu*
+                   besselK(sqrt(2*nu)*abs(x1-x2)/phi,nu))
+  cov[is.na(cov)] <- sigma2 #if x1=x2 get NaN
+  return(cov)
+}
+
+#by default p=2 GPexpcov is the squared exponential/Gaissian covariance
+# function. for matern , v=1.5
+
+#plot these functions
+h<-seq(0,1,0.1)
+compare_covs <- data.frame(h=h,
+                           Exponential = GPexpcov(h,0,phi = 0.25, p=1),
+                           Exp15 = GPexpcov(h,0,phi = 0.25,p=1.5),
+                           SquaredExp = GPexpcov(h,0,phi = 0.25,p=2),
+                           Matern32 = GPMatern(h,0,phi = 0.25),
+                           Matern52 = GPMatern(h,0,phi = 0.25,nu=5/2))
+plot_data <- reshape2::melt(compare_covs,id.var = "h")
+ggplot(plot_data,aes(x=h,y=value,col=variable))+
+  geom_line()+
+  ylim(0,1)+
+  labs(x='Distance', y='Correlation', col='Type')
+
+
+# sigema2 = 1, so the covariance and correlatioin are equal here
+
+
+#UNCONSTRAINED SAMPLING
+x<-seq(0,9.9,0.1)
+
+mu <- GPmean(x,0,0,0)#zero mean 
+#covariance matrix
+# covmat <- matrix(nrow = length(x),ncol = length(x))
+# for (i in 1:length(x)) {
+#   for (j in i:length(x)){
+#     covmat[i,j] <- GPexpcov(x[i], x[j], phi=1, p=2)
+#     covmat[j,i] <- covmat[i,j] # we know the matrix is symmetric
+#   }
+# }
+# #use rnorm to sample realisations from GP
+ q <- 5 # number of samples
+ set.seed(17573)
+# realisations <- rmnorm(q, mu, covmat)
+
+covmat <- matrix(nrow=length(x), ncol=length(x))
+for (i in 1:length(x)){
+  for (j in i:length(x)){
+    covmat[i,j] <- GPexpcov(x[i], x[j], phi=1, p=1.99)
+    covmat[j,i] <- covmat[i,j]
+  }
+}
+realisations <- rmnorm(q, mu, covmat)
+
+
+df <- data.frame(cbind(as.matrix(x),t(realisations)))
+names(df) <- c('x','realisation_1','realisation_2','realisation_3','realisation_4','realisation_5')
+unconstrained_plot <- ggplot(df) + 
+  geom_line(aes(x=x,y=realisation_1)) +
+  geom_line(aes(x=x,y=realisation_2),colour='red') +
+  geom_line(aes(x=x,y=realisation_3),colour='green') +
+  geom_line(aes(x=x,y=realisation_4),colour='blue') +
+  geom_line(aes(x=x,y=realisation_5),colour='orange') +
+  labs(y = 'y')
+unconstrained_plot
+
+
+#CONSTRAINED GAUSSIAN PROCESS
+condx <- c(20, 40, 60, 80) # indices where we will observe data
+n <- length(condx)
+
+mu_y <- GPmean(x[condx]) # mean vector at observed points
+mu_z <- GPmean(x[-condx]) # mean vector at unobserved points
+Sig_zz <- covmat[-condx,-condx] # covariance between unobserved points
+Sig_yy <- covmat[condx,condx] # covariance between observed points
+Sig_zy <- covmat[-condx,condx] # covariance between observed and unobserved points
+Sig_yy_inv <- chol2inv(chol(Sig_yy)) # inverting Sig_yy
+
+data <- rmnorm(1,mu_y,Sig_yy)
+data
+
+cond_mu <- c(mu_z + t((Sig_zy) %*% Sig_yy_inv %*% as.matrix(data-mu_y)))
+cond_var <- Sig_zz - (Sig_zy %*% Sig_yy_inv %*% t(Sig_zy))
+
+conditional_realisations <- rmnorm(q, cond_mu, cond_var)
+df_cond <- data.frame(cbind(as.matrix(x), matrix(nrow=length(x),ncol=q)))
+df_cond[-condx,-1]<- t(conditional_realisations)
+df_cond[condx,-1] <- data
+names(df_cond) <- c('x','realisation_1','realisation_2','realisation_3','realisation_4',
+                    'realisation_5')
+plot_data <- reshape2::melt(df_cond, id.vars = 'x')
+conditional_plot <- ggplot(plot_data, aes(x = x, y = value, col = variable)) +
+  geom_line() +
+  labs(y = 'y')
+conditional_plot
+
+meanvar <- as.data.frame(matrix(0, nrow=length(x),ncol=2))
+names(meanvar) <- c('mean','var')
+meanvar$mean[-condx] <- cond_mu
+meanvar$mean[condx] <- data
+meanvar$var[-condx] <- diag(cond_var)
+ggplot(data=meanvar) +
+  geom_line(aes(x = x, y = mean)) +
+  geom_line(aes(x = x, y = mean + 2*sqrt(var)), colour='red', linetype='dotted') +
+  geom_line(aes(x = x, y = mean - 2*sqrt(var)), colour='red', linetype='dotted') +
+  labs(x = 'x', y = 'y')
+
+#ADDING A NUGGET
+sigma_eps <- 0.01 # nugget variance
+covmat <- covmat + diag(length(x))*sigma_eps # adding the nugget variance onto the diagonal
+# Updating the Sigma matrices using the new covmat
+Sig_zz <- covmat[-condx,-condx]
+Sig_yy <- covmat[condx,condx]
+Sig_zy <- covmat[-condx,condx]
+Sig_yy_inv <- chol2inv(chol(Sig_yy))
+# Updating conditional mean and variance
+cond_mu <- c(mu_z + t((Sig_zy) %*% Sig_yy_inv %*% as.matrix(data-mu_y)))
+cond_var <- Sig_zz - (Sig_zy %*% Sig_yy_inv %*% t(Sig_zy))
+conditional_realisations_nugget <- rmnorm(q, cond_mu, cond_var)
+df_cond_nugget <- data.frame(cbind(as.matrix(x), matrix(nrow=length(x),ncol=q)))
+df_cond_nugget[-condx,-1] <- t(conditional_realisations_nugget)
+df_cond_nugget[condx,-1] <- data + rnorm(n*q, 0, sqrt(sigma_eps)) # adding random noise at data
+names(df_cond_nugget) <- c('x','realisation_1','realisation_2','realisation_3',
+                           'realisation_4','realisation_5')
+plot_data_nugget <- reshape2::melt(df_cond_nugget, id.vars = 'x')
+conditional_plot_nugget <- ggplot(plot_data_nugget, aes(x = x, y = value, col = variable)) +
+  geom_line() +
+  labs(x = 'x', y = 'y')
+conditional_plot_nugget
+
+
+meanvar <- as.data.frame(matrix(0, nrow=length(x),ncol=2))
+names(meanvar) <- c('mean','var')
+meanvar$mean[-condx] <- cond_mu
+meanvar$mean[condx] <- data
+meanvar$var[-condx] <- diag(cond_var)
+meanvar$var[condx] <- c(rep(sigma_eps,length(condx))) # have nugget variance at observed points now
+ggplot(data=meanvar) +
+  geom_line(aes(x = x, y = mean)) +
+  geom_line(aes(x = x, y = mean + 2*sqrt(var)), colour='red', linetype='dotted') +
+  geom_line(aes(x = x, y = mean - 2*sqrt(var)), colour='red', linetype='dotted') +
+  labs(x = 'x', y = 'y')
+
+
+
