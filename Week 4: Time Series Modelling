@@ -47,8 +47,8 @@ model4
 model4b <- arima(series4, order = c(2,0,3))
 model4b
 
-# So we shouldn¡¯t only use the auto.arima
-# output! It may contain coefficients that aren¡¯t significant, 
+# So we shouldnÂ¡Â¯t only use the auto.arima
+# output! It may contain coefficients that arenÂ¡Â¯t significant, 
 # because they provide a small improvement in AIC.
 
 
