@@ -1,0 +1,98 @@
+set.seed(673858)
+series1 = arima.sim(n=20000, list(order=c(1,0,0),ar=0.9, sd=1))
+par(mfrow=c(1,3))
+plot(series1, main='AR(1)')
+acf(series1, main='ACF')
+pacf(series1, main='PACF')
+
+
+series2 <- arima.sim(n = 20000, list(order = c(0,0,1), ma = 0.9, sd = 1))
+par(mfrow=c(1,3))
+plot(series2, main = 'MA(1)')
+acf(series2, main = 'ACF')
+pacf(series2, main = 'PACF')
+
+
+# ACF for AR will slowly decrease to 0; for MA will be 0 if lag >1
+# PACF for AR will be 0 if lag>1; for MA will slowly decrease to 0.
+
+series3 <- arima.sim(n = 20000, list(order = c(1,0,1), ar = 0.9, ma = 0.9, sd = 1))
+par(mfrow=c(1,3))
+plot(series3, main = 'ARMA(1,1)')
+acf(series3, main = 'ACF')
+pacf(series3, main = 'PACF')
+
+#both the ACF and PACF decay slowly to zero.
+
+series4 <- arima.sim(n = 2000, list(order = c(2,0,3), ar = c(0.5, 0.4), ma = c(0.5, 0.2, 0.8), sd = 1))
+par(mfrow=c(1,3))
+plot(series4, main = 'ARMA(2,3)')
+acf(series4, main = 'ACF')
+pacf(series4, main = 'PACF')
+
+
+#Fitting models
+model1 <- arima(series1, order = c(1,0,0))
+model1
+model1b <- arima(series1, order = c(0,0,1))
+model1b
+
+tsdiag(model1)
+tsdiag(model1b)
+
+library(forecast)
+model4 <- auto.arima(series4, max.p = 4, max.q = 4, max.d = 0, seasonal = FALSE)
+model4
+
+model4b <- arima(series4, order = c(2,0,3))
+model4b
+
+# So we shouldn¡¯t only use the auto.arima
+# output! It may contain coefficients that aren¡¯t significant, 
+# because they provide a small improvement in AIC.
+
+
+#Forecasting
+forecast1 <- predict(model1, n.ahead = 10)
+forecast1$pred
+forecast1b <- predict(model1b, n.ahead = 10)
+forecast1b$pred
+forecast4 <- predict(model4, n.ahead = 10)
+forecast4$pred
+
+data(co2)
+par(mfcol=c(1,1),mar=c(4,2,2,2)); plot(co2)
+
+spec.pgram(co2, log = 'no')
+diff1 <- ts(diff(co2, 1))
+par(mar=c(4,2,2,2)); plot(diff1)
+diff_seasonal <- ts(diff(diff1, 12))
+par(mar=c(4,2,2,2)); plot(diff_seasonal)
+
+par(mfrow=c(1,2))
+acf(diff_seasonal, main = 'ACF'); pacf(diff_seasonal, main = 'PACF')
+
+model_co2 <- auto.arima(diff_seasonal, max.p = 4, max.q = 4, max.d = 0, seasonal = FALSE)
+model_co2
+
+tsdiag(model_co2)
+
+model_co2_v2 <- arima(diff_seasonal, c(1,0,2))
+model_co2_v2
+model_co2 <- arima(diff(co2, 12), c(1,1,2))
+model_co2
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
